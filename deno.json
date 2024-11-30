@@ -1,0 +1,58 @@
+{
+	"compilerOptions": {
+		"lib": [
+			"deno.ns",
+			"deno.unstable",
+			"dom"
+		],
+		"strict": true,
+		"strictNullChecks": true,
+		"noImplicitAny": true,
+		"noImplicitReturns": true
+	},
+	"tasks": {
+		"start": "deno run --unstable-kv --allow-net --allow-read --allow-write=.,logs --allow-env --allow-ffi --allow-sys src/main.ts",
+		"kv": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts",
+		"kv:list": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts list",
+		"kv:get": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts get",
+		"kv:set": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts set",
+		"kv:update": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts update",
+		"kv:delete": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts delete",
+		"kv:wipe": "deno run --allow-read --allow-write --unstable-kv scripts/kv_cli.ts wipe",
+		"kv:setup": "deno run --allow-read --allow-write --allow-env --unstable-kv scripts/kv_setup.ts",
+		"metrics": "deno run --allow-read --allow-write --unstable-kv scripts/metrics_cli.ts show",
+		"metrics:reset": "deno run --allow-read --allow-write --unstable-kv scripts/metrics_cli.ts reset",
+		"fmt": "deno fmt src scripts",
+		"lint": "deno lint src scripts"
+	},
+	"fmt": {
+		"useTabs": true,
+		"lineWidth": 80,
+		"indentWidth": 2,
+		"singleQuote": true,
+		"proseWrap": "preserve"
+	},
+	"lint": {
+		"rules": {
+			"include": [
+				"ban-untagged-todo",
+				"require-await",
+				"no-var",
+				"prefer-const"
+			],
+			"exclude": [
+				"no-explicit-any"
+			]
+		}
+	},
+	"lock": true,
+	"imports": {
+		"@std/fs": "jsr:@std/fs@^1.0.5",
+		"@std/log": "jsr:@std/log@^0.224.9",
+		"@std/path": "jsr:@std/path@^1.0.8",
+		"atproto": "npm:@atproto/api@0.13.18",
+		"jetstream": "npm:@skyware/jetstream@0.2.1",
+		"skyware": "npm:@skyware/labeler@0.2.0",
+		"zod": "https://deno.land/x/zod@v3.23.8/mod.ts"
+	}
+}

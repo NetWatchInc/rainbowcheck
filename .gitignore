@@ -1,0 +1,6 @@
+# Directories
+coverage
+logs
+
+# Files
+deno.lock
