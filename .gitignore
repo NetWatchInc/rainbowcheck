@@ -4,3 +4,4 @@ logs
 
 # Files
 deno.lock
+labels.db*
