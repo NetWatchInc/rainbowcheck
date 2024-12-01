@@ -1,5 +1,5 @@
 # 🌈 rainbowcheck 🌈
-RainbowCheck™: Because One Checkmark Just Isn't Enough
+The Rainbow Check Authority™: Because One Checkmark Just Isn't Enough
 
 Tired of being just another unverified voice in the digital void? Introducing our prestigious spectrum of self-importance indicators
 
