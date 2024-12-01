@@ -21,13 +21,13 @@ export const RkeySchema = z.union([
 
 /**
  * DidSchema
- * - 32-character string (including "did:plc:")
+ * - 32-character string (including "did:plc: // did:web:")
  * - lowercase ASCII: a-z, 2-7, and : (no 0189)
  * - identifier derived from genesis operation hash
  * - last 24 characters are encoded as standard base32
  */
 export const DidSchema = z.string()
-	.regex(/^did:plc:[a-z2-7]{24}$/);
+	.regex(/^did:(plc:[a-z2-7]{24}|web:[a-zA-Z0-9.-]+)$/);
 
 /**
  * SigningKeySchema
