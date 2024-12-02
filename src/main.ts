@@ -9,10 +9,10 @@
  */
 
 import { AtpAgent } from 'atproto';
-import { Jetstream } from 'jetstream';
+import { CommitCreateEvent, CommitDeleteEvent, Jetstream } from 'jetstream';
 import { Labeler } from './labeler.ts';
 import { closeConfig, CONFIG, initializeConfig } from './config.ts';
-import { DidSchema, RkeySchema } from './schemas.ts';
+import { DidSchema } from './schemas.ts';
 import { verifyKvStore } from '../scripts/kv_utils.ts';
 import { AtpError, JetstreamError } from './errors.ts';
 import * as log from '@std/log';
@@ -186,34 +186,53 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 		// as error events are usually followed by close events
 	});
 
-	jetstream.onCreate(CONFIG.COLLECTION, async (event: unknown) => {
-		try {
-			// Type guard for event structure
-			if (!isValidEvent(event)) {
-				logger.error('Received invalid event structure:', { event });
-				return;
-			}
-
-			if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
-				const validatedDID = DidSchema.parse(event.did);
-				const rkey = event.commit.record.subject.uri.split('/').pop();
-
-				if (!rkey) {
-					logger.error('Could not extract rkey from event:', { event });
+	jetstream.onCreate(
+		CONFIG.COLLECTION,
+		async (event: CommitCreateEvent<typeof CONFIG.COLLECTION>) => {
+			try {
+				// Type guard for event structure
+				if (!isValidEvent(event)) {
+					logger.error('Received invalid event structure:', { event });
 					return;
 				}
 
-				const validatedRkey = RkeySchema.parse(rkey);
-				await labeler.handleLike(validatedDID, validatedRkey);
+				if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
+					const validatedDID = DidSchema.parse(event.did);
+					await labeler.handleLike(validatedDID, 'self');
+				}
+			} catch (error) {
+				logger.error(
+					`Error processing event: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
 			}
-		} catch (error) {
-			logger.error(
-				`Error processing event: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
-		}
-	});
+		},
+	);
+
+	jetstream.onDelete(
+		CONFIG.COLLECTION,
+		async (event: CommitDeleteEvent<typeof CONFIG.COLLECTION>) => {
+			try {
+				// Type guard for event structure
+				if (!isValidEvent(event)) {
+					logger.error('Received invalid delete event structure:', { event });
+					return;
+				}
+
+				if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
+					const validatedDID = DidSchema.parse(event.did);
+					await labeler.handleUnlike(validatedDID);
+				}
+			} catch (error) {
+				logger.error(
+					`Error processing delete event: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+		},
+	);
 }
 
 /**

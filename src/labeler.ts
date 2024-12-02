@@ -78,18 +78,11 @@ export class Labeler {
 	}
 
 	/**
-	 * Handles post interaction (like) events from users.
+	 * Handles like events on the labeler profile.
+	 * Assigns label when users like the labeler, removes when they unlike.
 	 *
-	 * Behavior:
-	 * 1. If user likes the decommission post (REMOVAL_RKEY), their current label is removed
-	 * 2. If user likes a labeled post:
-	 *    - If they have no label, they receive the new label
-	 *    - If they have a different label, old label is negated and new label applied
-	 *    - If they have the same label, no action is taken
-	 * 3. Self-labeling is prevented
-	 *
-	 * @param subject - The DID of the user who liked the post
-	 * @param rkey - The record key of the post that was liked
+	 * @param subject - The DID of the user who performed the like action
+	 * @param rkey - Record key, must be 'self' for labeler profile
 	 * @throws {LabelingError} If label operations fail
 	 */
 	async handleLike(subject: string, rkey: string): Promise<void> {
@@ -103,54 +96,34 @@ export class Labeler {
 		}
 
 		try {
-			// Check if this is the removal post
-			if (validatedRkey === CONFIG.REMOVAL_RKEY) {
-				await this.removeCurrentLabel(validatedSubject);
+			// Only process labeler profile likes
+			if (validatedRkey !== 'self') {
+				this.logger.debug(`Ignoring non-labeler like: ${validatedRkey}`);
 				return;
 			}
 
-			// Find the label for this post
-			const newLabel = LABELS.find((label) => label.rkey === validatedRkey);
-			if (!newLabel) {
-				this.logger.info(`No label mapping found for post ${validatedRkey}`);
-				return;
-			}
-
-			// Get current label if any
 			const currentLabel = await this.getCurrentLabel(validatedSubject);
 
-			// Skip if the same label is already active
-			if (currentLabel?.val === newLabel.identifier && !currentLabel.neg) {
+			// Skip if they already have the active label
+			if (currentLabel?.val === LABELS[0].identifier && !currentLabel.neg) {
 				this.logger.info(
-					`Label ${newLabel.identifier} already active for ${validatedSubject}`,
+					`Label ${
+						LABELS[0].identifier
+					} already active for ${validatedSubject}`,
 				);
 				return;
 			}
 
-			// If they have a different label, negate it first
-			if (currentLabel?.val && !currentLabel.neg) {
-				await this.labelerServer.createLabel({
-					uri: validatedSubject,
-					val: currentLabel.val,
-					neg: true,
-					src: this.labelerServer.did,
-				});
-				this.logger.info(
-					`Negated existing label ${currentLabel.val} for ${validatedSubject}`,
-				);
-				await this.metrics.decrementLabel(currentLabel.val);
-			}
-
-			// Apply the new label
+			// Apply the label
 			await this.labelerServer.createLabel({
 				uri: validatedSubject,
-				val: newLabel.identifier,
+				val: LABELS[0].identifier,
 				src: this.labelerServer.did,
 			});
 
-			await this.metrics.incrementLabel(newLabel.identifier);
+			await this.metrics.incrementLabel(LABELS[0].identifier);
 			this.logger.info(
-				`Applied label ${newLabel.identifier} to ${validatedSubject}`,
+				`Applied label ${LABELS[0].identifier} to ${validatedSubject}`,
 			);
 		} catch (error) {
 			const errorMessage = error instanceof Error
@@ -159,6 +132,50 @@ export class Labeler {
 			this.logger.error(`Error handling like:`, errorMessage);
 			throw new LabelingError(
 				`Failed to process like for ${validatedSubject}: ${errorMessage}`,
+			);
+		}
+	}
+
+	/**
+	 * Handles unlike events on the labeler profile.
+	 * Removes any active label when users unlike the labeler.
+	 * Only removes labels that are not already negated.
+	 *
+	 * @param subject - The DID of the user who performed the unlike action
+	 * @throws {LabelingError} If label removal operations fail
+	 */
+	public async handleUnlike(subject: string): Promise<void> {
+		const validatedSubject = DidSchema.parse(subject);
+
+		// Prevent self-labeling/unlabeling
+		if (validatedSubject === CONFIG.DID) {
+			this.logger.info(`Self-labeling blocked for ${validatedSubject}`);
+			return;
+		}
+
+		try {
+			const currentLabel = await this.getCurrentLabel(validatedSubject);
+
+			if (currentLabel?.val && !currentLabel.neg) {
+				await this.labelerServer.createLabel({
+					uri: validatedSubject,
+					val: currentLabel.val,
+					neg: true,
+					src: this.labelerServer.did,
+				});
+
+				await this.metrics.decrementLabel(currentLabel.val);
+				this.logger.info(
+					`Removed label ${currentLabel.val} from ${validatedSubject}`,
+				);
+			}
+		} catch (error) {
+			const errorMessage = error instanceof Error
+				? error.message
+				: String(error);
+			this.logger.error(`Error handling unlike:`, errorMessage);
+			throw new LabelingError(
+				`Failed to process unlike for ${validatedSubject}: ${errorMessage}`,
 			);
 		}
 	}
