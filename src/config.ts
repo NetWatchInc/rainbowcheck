@@ -35,7 +35,6 @@ export const defaultConfig: z.infer<typeof ConfigSchema> = {
 	BSKY_PASSWORD: 'default_password',
 	BSKY_URL: 'https://bsky.social',
 	PORT: 2048,
-	REMOVAL_RKEY: '3jzfcijpj2z2d',
 };
 
 /**

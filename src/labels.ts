@@ -11,15 +11,8 @@
 
 export const LABELS = [
 	{
-		rkey: '3l7jxzftheq2o',
+		rkey: 'self',
 		identifier: 'rcheck',
 		category: 'rcheck',
-	},
-
-	// rkey for label removal
-	{
-		rkey: '3l7jy2zq3z2qo',
-		identifier: '',
-		category: '',
 	},
 ] as const;

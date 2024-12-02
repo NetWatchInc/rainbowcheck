@@ -14,10 +14,7 @@ import { LABELS } from './labels.ts';
  * - represents a 64-bit integer, big-endian byte ordering
  * - encoded as base32-sortable
  */
-export const RkeySchema = z.union([
-	z.string().length(13).regex(/^[a-z2-7]{13}$/),
-	z.literal('self'),
-]);
+export const RkeySchema = z.literal('self');
 
 /**
  * DidSchema
@@ -54,7 +51,6 @@ export const ConfigSchema = z.object({
 	BSKY_PASSWORD: z.string().min(1),
 	BSKY_URL: z.string().url(),
 	PORT: z.number().int().min(1024),
-	REMOVAL_RKEY: RkeySchema,
 }).strict();
 
 /**

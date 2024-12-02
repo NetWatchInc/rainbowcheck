@@ -34,7 +34,6 @@ interface SetupConfig {
 	BSKY_PASSWORD: string;
 	BSKY_URL: string;
 	PORT: number;
-	REMOVAL_RKEY: string;
 }
 
 /**
@@ -51,7 +50,6 @@ const defaultConfig: SetupConfig = {
 	BSKY_PASSWORD: 'this-is-an-app-password',
 	BSKY_URL: 'https://bsky.social',
 	PORT: 2048,
-	REMOVAL_RKEY: '3jzfcijpj2z2d',
 };
 
 async function setup() {
