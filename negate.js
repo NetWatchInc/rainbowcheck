@@ -3,19 +3,19 @@
 import { LabelerServer } from 'skyware';
 
 const credentials = {
-  did: "Labeler DID",
-  signingKey: "Labeler Signing Key",
+	did: 'Labeler DID',
+	signingKey: 'Labeler Signing Key',
 };
 
 async function createNegationLabel() {
-  const labelerServer = new LabelerServer(credentials);
+	const labelerServer = new LabelerServer(credentials);
 
-  await labelerServer.createLabel({
-    uri: "User Account DID",
-    val: "", // identifier of the label to negate
-    neg: true,
-    src: credentials.did
-  });
+	await labelerServer.createLabel({
+		uri: 'User Account DID',
+		val: '', // identifier of the label to negate
+		neg: true,
+		src: credentials.did,
+	});
 }
 
 createNegationLabel().catch(console.error);
