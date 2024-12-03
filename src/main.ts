@@ -214,14 +214,10 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 		CONFIG.COLLECTION,
 		async (event: CommitDeleteEvent<typeof CONFIG.COLLECTION>) => {
 			try {
-				// Type guard for event structure
-				if (!isValidEvent(event)) {
-					logger.error('Received invalid delete event structure:', { event });
-					return;
-				}
+				const { did, commit } = event;
 
-				if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
-					const validatedDID = DidSchema.parse(event.did);
+				if (did && commit.rkey && commit.collection === CONFIG.COLLECTION) {
+					const validatedDID = DidSchema.parse(did);
 					await labeler.handleUnlike(validatedDID);
 				}
 			} catch (error) {
