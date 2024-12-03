@@ -11,7 +11,12 @@
 import { AtpAgent } from 'atproto';
 import { CommitCreateEvent, CommitDeleteEvent, Jetstream } from 'jetstream';
 import { Labeler } from './labeler.ts';
-import { closeConfig, CONFIG, initializeConfig } from './config.ts';
+import {
+	closeConfig,
+	CONFIG,
+	initializeConfig,
+	setConfigValue,
+} from './config.ts';
 import { DidSchema } from './schemas.ts';
 import { verifyKvStore } from '../scripts/kv_utils.ts';
 import { AtpError, JetstreamError } from './errors.ts';
@@ -20,6 +25,8 @@ import { MetricsTracker } from './metrics.ts';
 
 const kv = await Deno.openKv();
 const logger = log.getLogger();
+const processedEvents = new Set<string>();
+const CACHE_CLEANUP_INTERVAL = 300000; // 5 minutes
 
 /**
  * Main function orchestrating the application.
@@ -36,6 +43,23 @@ async function main() {
 			throw new Error('KV store verification failed');
 		}
 		logger.info('KV store verified successfully');
+
+		// Initialize cursor if not set
+		const expectedCursor = Date.now() * 1000;
+		if (CONFIG.CURSOR < expectedCursor) {
+			logger.info(
+				`Cursor needs update. Current: ${CONFIG.CURSOR}, setting to: ${expectedCursor} (${
+					new Date(expectedCursor / 1000).toISOString()
+				})`,
+			);
+			await setConfigValue('CURSOR', expectedCursor);
+		} else {
+			logger.info(
+				`Cursor is current: ${CONFIG.CURSOR} (${
+					new Date(CONFIG.CURSOR / 1000).toISOString()
+				})`,
+			);
+		}
 
 		const agent = new AtpAgent({ service: CONFIG.BSKY_URL });
 		const metrics = new MetricsTracker(kv);
@@ -63,16 +87,26 @@ async function main() {
 
 		await labeler.init();
 
-		const cursor = await initializeCursor();
-
 		try {
 			const jetstream = new Jetstream({
 				wantedCollections: [CONFIG.COLLECTION],
 				endpoint: CONFIG.JETSTREAM_URL,
-				cursor: cursor,
+				cursor: CONFIG.CURSOR,
 			});
 
 			setupJetstreamListeners(jetstream, labeler);
+
+			// Set up event cache cleanup
+			setInterval(() => {
+				const now = Date.now();
+				for (const eventId of processedEvents) {
+					const [, , timeStr] = eventId.split(':');
+					const eventTime = parseInt(timeStr);
+					if (now - eventTime > 3600000) { // 1 hour retention
+						processedEvents.delete(eventId);
+					}
+				}
+			}, CACHE_CLEANUP_INTERVAL);
 
 			jetstream.start();
 			logger.info('Jetstream started');
@@ -101,30 +135,17 @@ async function main() {
 }
 
 /**
- * Initializes or retrieves the cursor value from the KV store.
- * The cursor represents a point in time (in microseconds) from which
- * to start processing events.
+ * Generates a unique identifier for a Jetstream event.
+ * Uses the event's DID, revision, and current timestamp to create a unique string.
+ * Used for deduplication of events during processing.
  *
- * @returns The cursor value in microseconds since epoch
+ * @param event - The Jetstream event (create or delete) to generate an ID for
+ * @returns A unique string identifier for the event
  */
-async function initializeCursor(): Promise<number> {
-	const cursorResult = await kv.get(['cursor']);
-	if (cursorResult.value === null) {
-		const cursor = Date.now() * 1000;
-		logger.info(
-			`Cursor not found, setting to: ${cursor} (${
-				new Date(cursor / 1000).toISOString()
-			})`,
-		);
-		await kv.set(['cursor'], cursor);
-		return cursor;
-	} else {
-		const cursor = cursorResult.value as number;
-		logger.info(
-			`Cursor found: ${cursor} (${new Date(cursor / 1000).toISOString()})`,
-		);
-		return cursor;
-	}
+function generateEventId(
+	event: CommitCreateEvent<string> | CommitDeleteEvent<string>,
+): string {
+	return `${event.did}:${event.commit.rev}:${Date.now()}`;
 }
 
 /**
@@ -178,19 +199,19 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 	});
 
 	jetstream.on('error', () => {
-		// Just log that an error occurred - don't try to access error properties
-		// as the underlying WebSocket implementation might not provide them
 		logger.error('Jetstream encountered a WebSocket error');
-
-		// Let the close handler handle reconnection
-		// as error events are usually followed by close events
 	});
 
 	jetstream.onCreate(
 		CONFIG.COLLECTION,
 		async (event: CommitCreateEvent<typeof CONFIG.COLLECTION>) => {
 			try {
-				// Type guard for event structure
+				const eventId = generateEventId(event);
+				if (processedEvents.has(eventId)) {
+					logger.debug(`Skipping duplicate create event: ${eventId}`);
+					return;
+				}
+
 				if (!isValidEvent(event)) {
 					logger.error('Received invalid event structure:', { event });
 					return;
@@ -199,6 +220,11 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 				if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
 					const validatedDID = DidSchema.parse(event.did);
 					await labeler.handleLike(validatedDID, 'self');
+					processedEvents.add(eventId);
+
+					if (jetstream.cursor) {
+						await setConfigValue('CURSOR', jetstream.cursor);
+					}
 				}
 			} catch (error) {
 				logger.error(
@@ -214,11 +240,21 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 		CONFIG.COLLECTION,
 		async (event: CommitDeleteEvent<typeof CONFIG.COLLECTION>) => {
 			try {
-				const { did, commit } = event;
+				const eventId = generateEventId(event);
+				if (processedEvents.has(eventId)) {
+					logger.debug(`Skipping duplicate delete event: ${eventId}`);
+					return;
+				}
 
+				const { did, commit } = event;
 				if (did && commit.rkey && commit.collection === CONFIG.COLLECTION) {
 					const validatedDID = DidSchema.parse(did);
 					await labeler.handleUnlike(validatedDID);
+					processedEvents.add(eventId);
+
+					if (jetstream.cursor) {
+						await setConfigValue('CURSOR', jetstream.cursor);
+					}
 				}
 			} catch (error) {
 				logger.error(
@@ -232,7 +268,12 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 }
 
 /**
- * Type guard to validate Jetstream event structure
+ * Type guard to validate Jetstream event structure.
+ * Ensures the event has the required properties for processing.
+ * Checks for presence and correct types of did, commit.record.subject.uri.
+ *
+ * @param event - The event object to validate
+ * @returns True if the event has the required structure, false otherwise
  */
 function isValidEvent(event: unknown): event is {
 	did: string;
@@ -279,7 +320,7 @@ function setupCursorUpdateInterval(jetstream: Jetstream) {
 					new Date(jetstream.cursor / 1000).toISOString()
 				})`,
 			);
-			await kv.set(['cursor'], jetstream.cursor);
+			await setConfigValue('CURSOR', jetstream.cursor);
 		}
 	}, CONFIG.CURSOR_INTERVAL);
 }
