@@ -29,6 +29,7 @@ interface SetupConfig {
 	SIGNING_KEY: string;
 	JETSTREAM_URL: string;
 	COLLECTION: string;
+	CURSOR: number;
 	CURSOR_INTERVAL: number;
 	BSKY_HANDLE: string;
 	BSKY_PASSWORD: string;
@@ -45,6 +46,7 @@ const defaultConfig: SetupConfig = {
 	SIGNING_KEY: 'QRfHq0Bx797K58RNAtvGEMXh4z0cQsSiT9DFo6gKDj4',
 	JETSTREAM_URL: 'wss://jetstream1.us-west.bsky.network/subscribe',
 	COLLECTION: 'app.bsky.feed.like',
+	CURSOR: 0,
 	CURSOR_INTERVAL: 10000,
 	BSKY_HANDLE: 'test.bsky.social',
 	BSKY_PASSWORD: 'this-is-an-app-password',
