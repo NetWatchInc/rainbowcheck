@@ -219,6 +219,7 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 
 				if (event.commit?.record?.subject?.uri?.includes(CONFIG.DID)) {
 					const validatedDID = DidSchema.parse(event.did);
+					await kv.set(['rkeys', event.commit.rkey], validatedDID);
 					await labeler.handleLike(validatedDID, 'self');
 					processedEvents.add(eventId);
 
@@ -248,12 +249,18 @@ function setupJetstreamListeners(jetstream: Jetstream, labeler: Labeler) {
 
 				const { did, commit } = event;
 				if (did && commit.rkey && commit.collection === CONFIG.COLLECTION) {
-					const validatedDID = DidSchema.parse(did);
-					await labeler.handleUnlike(validatedDID);
-					processedEvents.add(eventId);
+					// Check if this rkey exists in our rkeys store
+					const result = await kv.get(['rkeys', commit.rkey]);
+					if (result.value) {
+						const validatedDID = DidSchema.parse(did);
+						await labeler.handleUnlike(validatedDID);
+						// Remove the rkey after processing the unlike
+						await kv.delete(['rkeys', commit.rkey]);
+						processedEvents.add(eventId);
 
-					if (jetstream.cursor) {
-						await setConfigValue('CURSOR', jetstream.cursor);
+						if (jetstream.cursor) {
+							await setConfigValue('CURSOR', jetstream.cursor);
+						}
 					}
 				}
 			} catch (error) {
