@@ -9,10 +9,7 @@ import { LABELS } from './labels.ts';
 
 /**
  * RkeySchema (aka TID)
- * - 13-character string
- * - lowercase ASCII: a-z, 2-7 (no 0189)
- * - represents a 64-bit integer, big-endian byte ordering
- * - encoded as base32-sortable
+ * - we are using the like button on the labeler itself which has the rkey of 'self'
  */
 export const RkeySchema = z.literal('self');
 
