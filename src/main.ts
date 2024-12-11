@@ -145,7 +145,7 @@ async function main() {
 			await handler.start();
 			logger.info('Jetstream started with connection management');
 
-			setupCursorUpdateInterval(jetstream);
+			setupCursorUpdateInterval(jetstream, handler);
 			setupShutdownHandlers(labeler, handler);
 		} catch (error) {
 			if (error instanceof Error) {
@@ -312,9 +312,12 @@ function isValidEvent(event: unknown): event is {
  *
  * @param jetstream - The Jetstream instance providing cursor values
  */
-function setupCursorUpdateInterval(jetstream: Jetstream<string, string>) {
+function setupCursorUpdateInterval(
+	jetstream: Jetstream<string, string>,
+	handler: Handler,
+) {
 	setInterval(async () => {
-		if (jetstream.cursor) {
+		if (jetstream.cursor && handler.connected) {
 			logger.info(
 				`Updating cursor to: ${jetstream.cursor} (${
 					new Date(jetstream.cursor / 1000).toISOString()
@@ -339,7 +342,14 @@ function setupShutdownHandlers(
 	labeler: Labeler,
 	handler: Handler,
 ) {
+	let isShuttingDown = false;
+
 	const shutdown = async () => {
+		if (isShuttingDown) {
+			return;
+		}
+		isShuttingDown = true;
+
 		logger.info('Shutting down...');
 		await labeler.shutdown();
 		await handler.shutdown();
