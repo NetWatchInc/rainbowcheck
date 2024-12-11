@@ -105,43 +105,50 @@ export class Handler {
 
 	/**
 	 * Initiates a graceful shutdown of the connection.
-	 * Returns a promise that resolves when the connection is fully closed.
-	 * Includes a timeout to prevent hanging if closure confirmation is not received.
+	 * Includes fallback forced closure if graceful shutdown exceeds timeout.
+	 * Ensures cleanup of all resources and event listeners.
 	 *
 	 * @returns Promise that resolves when shutdown is complete
 	 */
 	public shutdown(): Promise<void> {
 		if (this.isShuttingDown) {
-			return this.closePromise || Promise.resolve();
+			return Promise.resolve();
 		}
 
 		this.isShuttingDown = true;
 		this.shouldReconnect = false;
 		this.cleanup();
 
-		this.closePromise = new Promise((resolve) => {
-			this.closePromiseResolve = resolve;
+		return new Promise<void>((resolve) => {
+			const forceClose = () => {
+				this.logger.warn('Forcing connection closure after timeout');
+				this.cleanup();
+				this.jetstream.removeAllListeners();
+				resolve();
+			};
 
-			const timeoutId = setTimeout(() => {
-				this.logger.warn(
-					`[${
-						new Date().toISOString()
-					}] Connection close timed out during shutdown`,
+			const shutdownTimer = setTimeout(forceClose, 2000);
+
+			try {
+				this.jetstream.close();
+
+				const gracefulClose = () => {
+					clearTimeout(shutdownTimer);
+					this.cleanup();
+					this.jetstream.removeAllListeners();
+					resolve();
+				};
+
+				setTimeout(gracefulClose, this.SHUTDOWN_TIMEOUT);
+			} catch (error) {
+				this.logger.error(
+					`Error during shutdown: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
 				);
-				if (this.closePromiseResolve) {
-					this.closePromiseResolve();
-					this.closePromiseResolve = null;
-				}
-			}, this.SHUTDOWN_TIMEOUT);
-
-			this.closePromise?.finally(() => {
-				clearTimeout(timeoutId);
-				this.closePromiseResolve = null;
-			});
+				forceClose();
+			}
 		});
-
-		this.jetstream.close();
-		return this.closePromise;
 	}
 
 	/**
@@ -282,18 +289,20 @@ export class Handler {
 		});
 
 		this.jetstream.on('close', async () => {
-			if (this.reconnectTimeout !== null) {
-				return;
-			}
-
 			this.isConnected = false;
 			this.logger.info(
 				`[${new Date().toISOString()}] Jetstream connection closed`,
 			);
 
-			if (this.isShuttingDown && this.closePromiseResolve) {
-				this.closePromiseResolve();
-				this.closePromiseResolve = null;
+			if (this.isShuttingDown) {
+				if (this.closePromiseResolve) {
+					this.closePromiseResolve();
+					this.closePromiseResolve = null;
+				}
+				return;
+			}
+
+			if (this.reconnectTimeout !== null) {
 				return;
 			}
 

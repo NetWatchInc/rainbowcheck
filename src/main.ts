@@ -350,12 +350,26 @@ function setupShutdownHandlers(
 		}
 		isShuttingDown = true;
 
-		logger.info('Shutting down...');
-		await labeler.shutdown();
-		await handler.shutdown();
-		await closeConfig();
-		kv.close();
-		Deno.exit(0);
+		logger.info('Initiating shutdown sequence...');
+
+		try {
+			await Promise.race([
+				handler.shutdown(),
+				new Promise((resolve) => setTimeout(resolve, 7000)),
+			]);
+			await labeler.shutdown();
+			await closeConfig();
+			kv.close();
+			logger.info('Shutdown completed successfully');
+		} catch (error) {
+			logger.error(
+				`Error during shutdown: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		} finally {
+			Deno.exit(0);
+		}
 	};
 
 	Deno.addSignalListener('SIGINT', shutdown);
