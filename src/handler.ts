@@ -286,10 +286,14 @@ export class Handler {
 		});
 
 		this.jetstream.on('close', async () => {
+			// Only log closure if we were previously connected
+			if (this.isConnected) {
+				this.logger.info(
+					`[${new Date().toISOString()}] Jetstream connection closed`,
+				);
+			}
+
 			this.isConnected = false;
-			this.logger.info(
-				`[${new Date().toISOString()}] Jetstream connection closed`,
-			);
 
 			if (this.isShuttingDown) {
 				if (this.closePromiseResolve) {
