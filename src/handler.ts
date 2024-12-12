@@ -55,9 +55,6 @@ export class Handler {
 	/** Promise resolution function for connection closure */
 	private closePromiseResolve: (() => void) | null = null;
 
-	/** Promise that resolves when connection is fully closed */
-	private closePromise: Promise<void> | null = null;
-
 	/** Maximum number of exponential reconnection attempts before falling back to MAX_DELAY */
 	private readonly MAX_EXPONENTIAL_ATTEMPTS = 6;
 
