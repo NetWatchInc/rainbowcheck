@@ -184,20 +184,9 @@ export class Handler {
 	private async connect(): Promise<void> {
 		try {
 			this.cleanup();
-			this.jetstream.start();
-			this.isConnected = true;
-			this.logger.info(
-				`[${
-					new Date().toISOString()
-				}] Connected to Jetstream with cursor ${this.jetstream.cursor}`,
-			);
+			await this.jetstream.start();
 		} catch (error) {
 			this.isConnected = false;
-			this.logger.error(
-				`[${new Date().toISOString()}] Connection attempt failed: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
 			await this.handleConnectionError(error);
 		}
 	}
@@ -209,11 +198,15 @@ export class Handler {
 	 * @param error - The error that caused the connection failure
 	 */
 	private handleConnectionError(error: unknown): Promise<void> {
+		if (this.isConnecting || this.reconnectTimeout !== null) {
+			return Promise.resolve();
+		}
+
 		if (!this.shouldReconnect || this.isShuttingDown) {
 			this.logger.info(
 				`[${
 					new Date().toISOString()
-				}] Connection terminated, reconnection disabled`,
+				}] Skipping reconnection - shutdown in progress`,
 			);
 			return Promise.resolve();
 		}
@@ -222,20 +215,6 @@ export class Handler {
 		this.logger.error(
 			`[${new Date().toISOString()}] Connection failed: ${errorMessage}`,
 		);
-
-		if (this.reconnectTimeout !== null) {
-			return Promise.resolve();
-		}
-
-		if (this.reconnectAttempt === this.MAX_EXPONENTIAL_ATTEMPTS) {
-			this.logger.info(
-				`[${
-					new Date().toISOString()
-				}] Switching to long-interval reconnection attempts (every ${
-					this.MAX_DELAY / 1000
-				}s)`,
-			);
-		}
 
 		const delay = this.calculateDelay();
 		this.reconnectAttempt++;
@@ -247,13 +226,20 @@ export class Handler {
 				`(in ${Math.floor(delay / 1000)}s, attempt ${this.reconnectAttempt})`,
 		);
 
-		return new Promise<void>((resolve, reject) => {
+		return new Promise<void>((resolve) => {
 			this.reconnectTimeout = setTimeout(() => {
 				this.reconnectTimeout = null;
+
 				if (this.shouldReconnect && !this.isShuttingDown) {
 					this.connect()
 						.then(resolve)
-						.catch(reject);
+						.catch((connectError) => {
+							this.logger.error(
+								`[${new Date().toISOString()}] Reconnection failed:`,
+								connectError,
+							);
+							resolve();
+						});
 				} else {
 					resolve();
 				}
@@ -268,32 +254,35 @@ export class Handler {
 	 */
 	public setupEventHandlers(): void {
 		this.jetstream.on('open', () => {
-			this.isConnected = true;
-			this.logger.info(
-				`[${
-					new Date().toISOString()
-				}] Connected to Jetstream with cursor ${this.jetstream.cursor}`,
-			);
+			if (!this.isConnected) {
+				this.isConnected = true;
+				this.reconnectAttempt = 0;
+				this.logger.info(
+					`[${
+						new Date().toISOString()
+					}] Connected to Jetstream with cursor ${this.jetstream.cursor}`,
+				);
+			}
 		});
 
 		this.jetstream.on('error', () => {
 			if (!this.isConnected) {
-				return; // Ignore errors when not connected
+				return;
 			}
 			this.logger.error(
 				`[${new Date().toISOString()}] Jetstream encountered a WebSocket error`,
 			);
 		});
 
-		this.jetstream.on('close', async () => {
-			// Only log closure if we were previously connected
-			if (this.isConnected) {
+		this.jetstream.on('close', () => {
+			const wasConnected = this.isConnected;
+			this.isConnected = false;
+
+			if (wasConnected) {
 				this.logger.info(
 					`[${new Date().toISOString()}] Jetstream connection closed`,
 				);
 			}
-
-			this.isConnected = false;
 
 			if (this.isShuttingDown) {
 				if (this.closePromiseResolve) {
@@ -303,13 +292,9 @@ export class Handler {
 				return;
 			}
 
-			if (this.reconnectTimeout !== null) {
-				return;
-			}
-
-			if (this.shouldReconnect) {
-				await this.handleConnectionError(
-					new JetstreamError('WebSocket connection error'),
+			if (wasConnected && this.shouldReconnect && !this.reconnectTimeout) {
+				this.handleConnectionError(
+					new JetstreamError('WebSocket connection closed unexpectedly'),
 				);
 			}
 		});

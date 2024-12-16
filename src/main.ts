@@ -43,11 +43,11 @@ const logger = log.getLogger();
 /** Set for tracking processed events to prevent duplicates */
 const processedEvents = new Set<string>();
 
-/** Interval for cleaning up expired events from the deduplication cache (5 minutes) */
-const CACHE_CLEANUP_INTERVAL = 300000;
+/** Interval for cleaning up expired events from the deduplication cache (1 minute) */
+const CACHE_CLEANUP_INTERVAL = 60000;
 
-/** Duration to retain processed events in the cache (1 hour) */
-const EVENT_RETENTION_DURATION = 3600000;
+/** Duration to retain processed events in the cache (5 minutes) */
+const EVENT_RETENTION_DURATION = 300000;
 
 /**
  * Main function orchestrating the application lifecycle.
@@ -130,11 +130,11 @@ async function main() {
 
 			// Configure cache cleanup
 			setInterval(() => {
-				const now = Date.now();
+				const minCursor = (jetstream.cursor ?? Date.now() * 1000) - EVENT_RETENTION_DURATION * 1000;
 				for (const eventId of processedEvents) {
-					const [, , timeStr] = eventId.split(':');
-					const eventTime = parseInt(timeStr);
-					if (now - eventTime > EVENT_RETENTION_DURATION) {
+					const [, , cursorStr] = eventId.split(':');
+					const eventCursor = parseInt(cursorStr);
+					if (eventCursor < minCursor) {
 						processedEvents.delete(eventId);
 					}
 				}
@@ -173,12 +173,13 @@ async function main() {
  * Combines the event's DID, revision, and timestamp to create a unique string.
  *
  * @param event - The Jetstream event requiring a unique identifier
+ * @param cursor - The current cursor value for the Jetstream connection
  * @returns A unique string identifier for the event
  */
 function generateEventId(
-	event: CommitCreateEvent<string> | CommitDeleteEvent<string>,
+	event: CommitCreateEvent<string> | CommitDeleteEvent<string>, cursor?: number,
 ): string {
-	return `${event.did}:${event.commit.rev}:${Date.now()}`;
+	return `${event.did}:${event.commit.rev}:${cursor}`;
 }
 
 /**
@@ -201,11 +202,12 @@ function setupJetstreamListeners(
 		CONFIG.COLLECTION,
 		async (event: CommitCreateEvent<typeof CONFIG.COLLECTION>) => {
 			try {
-				const eventId = generateEventId(event);
+				const eventId = generateEventId(event, jetstream.cursor);
 				if (processedEvents.has(eventId)) {
 					logger.debug(`Skipping duplicate create event: ${eventId}`);
 					return;
 				}
+				processedEvents.add(eventId);
 
 				if (!isValidEvent(event)) {
 					logger.error('Received invalid event structure:', { event });
@@ -216,7 +218,6 @@ function setupJetstreamListeners(
 					const validatedDID = DidSchema.parse(event.did);
 					await kv.set(['rkeys', event.commit.rkey], validatedDID);
 					await labeler.handleLike(validatedDID, 'self');
-					processedEvents.add(eventId);
 
 					if (jetstream.cursor) {
 						await setConfigValue('CURSOR', jetstream.cursor);
